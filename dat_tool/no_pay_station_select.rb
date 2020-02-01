@@ -25,8 +25,20 @@ module DatTool
 
       matched_games = []
       csv.each do |row|
-        file_name = "#{row["Content ID"]}.pkg"
-        file_size = row["File Size"]
+        if row["PKG direct link"] == "MISSING" || row["zRIF"] == "MISSING" || row["File Size"].to_i == 0
+          next
+        end
+        if row["Content ID"]
+          file_name = "#{row["Content ID"]}.pkg"
+          name = row["Name"]
+        else
+          file_name = row["PKG direct link"].split("/").last
+          parts = file_name.split("-")
+          file_name = "#{parts[0..2].join("-")}_patch_#{parts[3][1..2]}.#{parts[3][3..4]}.pkg"
+          name = "#{row["Name"]} #{row["Update Version"]}"
+        end
+        name.gsub!("\"", "")
+        file_size = row["File Size"].to_i
         game = games.find{ |game| File.basename(game) == file_name }
         if game
           sha256 = nil
@@ -47,14 +59,16 @@ module DatTool
             sha256 = sha256_digest.to_s
             sha1 = sha1_digest.to_s
             md5 = md5_digest.to_s
+            crc = crc.to_s(16)
           end
-          if File.size(game) == file_size.to_i
-            if sha256 != "" && sha256 == row["SHA256"]
+          if File.size(game) == file_size
+            if row["SHA256"].nil? || row["SHA256"] == "" || row["SHA256"] == sha256
               puts "Matched: #{file_name}"
               matched_games << {
                 file_name: file_name,
                 file_size: file_size,
-                name: row["Name"],
+                title_id: row["Title ID"],
+                name: name,
                 crc: crc,
                 md5: md5,
                 sha1: sha1
@@ -63,7 +77,7 @@ module DatTool
               puts "Invalid SHA256: #{file_name}"
             end
           else
-            puts "Invalid file size: #{file_name}"
+            puts "Invalid file size: #{file_name} (#{File.size(game)}/#{file_size})"
           end
         end
       end
@@ -72,15 +86,13 @@ module DatTool
       version = Date.today.to_s
       File.open(@output, "w", newline: :crlf) do |file|
         file.puts "clrmamepro ("
-        file.puts %{\t name "#{File.basename(@path)}"}
         file.puts %{\t version "#{version}"}
         file.puts ")"
         file.puts
 
         matched_games.each do |matched_game|
           file.puts "game ("
-          file.puts %{\t name "#{matched_game[:name]}"}
-          file.puts %{\t description "#{matched_game[:name]}"}
+          file.puts %{\t name "#{matched_game[:title_id]} - #{matched_game[:name]}"}
           file.puts %{\t rom ( name #{matched_game[:file_name]} size #{matched_game[:file_size]} crc #{matched_game[:crc]} md5 #{matched_game[:md5]} sha1 #{matched_game[:sha1]} )}
           file.puts ")"
           file.puts
